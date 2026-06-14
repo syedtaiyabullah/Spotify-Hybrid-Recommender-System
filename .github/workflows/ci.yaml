@@ -1,0 +1,79 @@
+name: CI-CD
+
+on: push
+
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[pipeline,dev]"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: DVC pull
+        run: dvc pull
+
+      - name: Start API server
+        run: |
+          nohup uvicorn backend.main:app --port 8000 &
+
+      - name: Run tests
+        run: pytest tests/
+
+      - name: Stop API server
+        run: pkill -f "uvicorn backend.main:app" || true
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -f Dockerfile.backend -t $REGISTRY/spotify_hybrid_recsys_backend:$IMAGE_TAG .
+          docker push $REGISTRY/spotify_hybrid_recsys_backend:$IMAGE_TAG
+
+      - name: Build and push frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -f Dockerfile.frontend -t $REGISTRY/spotify_hybrid_recsys_frontend:$IMAGE_TAG .
+          docker push $REGISTRY/spotify_hybrid_recsys_frontend:$IMAGE_TAG
+
+      - name: Zip deployment package
+        run: |
+          zip -r deployment.zip appspec.yml deploy/
+
+      - name: Upload deployment package to S3
+        run: |
+          aws s3 cp deployment.zip s3://hybridrecsysdeploymentbucket/deployment.zip
+
+      - name: Deploy via CodeDeploy
+        run: |
+          aws deploy create-deployment \
+            --application-name hybridrecommendersystem \
+            --deployment-config-name CodeDeployDefault.AllAtOnce \
+            --deployment-group-name hybridrecsysdeploymentgroup \
+            --s3-location bucket=hybridrecsysdeploymentbucket,key=deployment.zip,bundleType=zip \
+            --file-exists-behavior OVERWRITE \
+            --region ap-south-1

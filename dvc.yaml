@@ -1,0 +1,31 @@
+stages:
+  data_cleaning:
+    cmd: python scripts/train_pipeline.py clean
+    deps:
+      - data/Music Info.csv
+      - backend/pipeline/data_cleaning.py
+    outs:
+      - data/cleaned_data.csv
+
+  collab_features:
+    cmd: python scripts/train_pipeline.py collab
+    deps:
+      - data/User Listening History.csv
+      - data/cleaned_data.csv
+      - backend/pipeline/interaction_matrix.py
+    outs:
+      - data/track_ids.npy
+      - data/collab_filtered_data.csv
+      - models/nmf_model.joblib
+      - models/collab.faiss
+
+  content_features:
+    cmd: python scripts/train_pipeline.py content
+    deps:
+      - data/cleaned_data.csv
+      - data/collab_filtered_data.csv
+      - backend/pipeline/feature_engineering.py
+    outs:
+      - models/content_transformer.joblib
+      - models/content.faiss
+      - models/hybrid_content.faiss

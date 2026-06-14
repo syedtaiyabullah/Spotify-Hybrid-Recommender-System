@@ -1,0 +1,27 @@
+# Production compose file — uses pre-built ECR images.
+# ECR_REGISTRY must be set in the environment before running docker compose.
+# Example: ECR_REGISTRY=891377050051.dkr.ecr.ap-south-1.amazonaws.com
+
+services:
+  backend:
+    image: ${ECR_REGISTRY}/spotify_hybrid_recsys_backend:latest
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    image: ${ECR_REGISTRY}/spotify_hybrid_recsys_frontend:latest
+    ports:
+      - "80:8501"
+    environment:
+      - API_URL=http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
