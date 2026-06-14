@@ -1,6 +1,9 @@
 name: CI-CD
 
-on: push
+on:
+  push:
+    branches-ignore:
+      - '**'  # Disabled until AWS secrets are configured
 
 jobs:
   CI:
